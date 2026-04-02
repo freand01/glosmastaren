@@ -177,6 +177,16 @@ export default function App() {
           {currentView === 'speak' && <SpeakMode words={words} onBack={() => setCurrentView('dashboard')} ttsLanguage={ttsLanguage} direction={direction} />}
         </div>
       </div>
+
+      {/* Snygg CSS inbäddad - Detta fixar 3D-flippen på Flashcards! */}
+      <style dangerouslySetInnerHTML={{__html: `
+        .perspective-1000 { perspective: 1000px; }
+        .preserve-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+      `}} />
     </div>
   );
 }
