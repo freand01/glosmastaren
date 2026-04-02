@@ -178,8 +178,12 @@ export default function App() {
         </div>
       </div>
 
-      {/* Animation för medalj-skärmen */}
+      {/* Animation för medalj-skärmen och 3D-korten */}
       <style dangerouslySetInnerHTML={{__html: `
+        .perspective-1000 { perspective: 1000px; }
+        .preserve-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
         .animate-float { animation: float 3s ease-in-out infinite; }
       `}} />
@@ -487,26 +491,20 @@ function Flashcards({ words, onBack, ttsLanguage, direction }) {
     <div className="max-w-3xl mx-auto flex flex-col items-center">
       <div className="w-full"><GameHeader current={currentIndex + 1} total={words.length} onBack={onBack} /></div>
 
-      <div className="w-full h-[24rem] [perspective:1000px] cursor-pointer mb-10 group" onClick={() => setIsFlipped(!isFlipped)}>
-        <div className={`w-full h-full relative transition-transform duration-500 ease-out [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
-          
-          {/* Framsidan */}
-          <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] [-webkit-backface-visibility:hidden]">
-            <div className="w-full h-full bg-white border-8 border-blue-50 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-10 group-hover:scale-[1.02] transition-transform">
-              <h2 className="text-6xl font-black text-slate-800 text-center mb-8">{sides.front}</h2>
-              <button onClick={(e) => { e.stopPropagation(); playAudio(sides.front, sides.isFrontForeign ? ttsLanguage : 'sv-SE'); }} className="bg-blue-100 p-5 rounded-full text-blue-600 hover:bg-blue-500 hover:text-white transition-colors shadow-sm"><Volume2 size={32} /></button>
-              <span className="absolute bottom-6 text-slate-400 font-bold uppercase tracking-widest text-sm">Klicka för att vända</span>
-            </div>
+      <div 
+        className="w-full h-[24rem] perspective-1000 cursor-pointer mb-10 transition-transform duration-300 hover:-translate-y-2" 
+        onClick={() => setIsFlipped(!isFlipped)}
+      >
+        <div className={`w-full h-full relative preserve-3d transition-transform duration-500 ease-out ${isFlipped ? 'rotate-y-180' : ''}`}>
+          <div className="absolute w-full h-full backface-hidden bg-white border-8 border-blue-50 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-10">
+            <h2 className="text-6xl font-black text-slate-800 text-center mb-8">{sides.front}</h2>
+            <button onClick={(e) => { e.stopPropagation(); playAudio(sides.front, sides.isFrontForeign ? ttsLanguage : 'sv-SE'); }} className="bg-blue-100 p-5 rounded-full text-blue-600 hover:bg-blue-500 hover:text-white transition-colors shadow-sm"><Volume2 size={32} /></button>
+            <span className="absolute bottom-6 text-slate-400 font-bold uppercase tracking-widest text-sm">Klicka för att vända</span>
           </div>
-          
-          {/* Baksidan */}
-          <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] [-webkit-backface-visibility:hidden] [transform:rotateY(180deg)]">
-            <div className="w-full h-full bg-gradient-to-br from-blue-500 to-indigo-600 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-10 border-8 border-blue-400 text-white group-hover:scale-[1.02] transition-transform">
-              <h2 className="text-6xl font-black text-center mb-8">{sides.back}</h2>
-              <button onClick={(e) => { e.stopPropagation(); playAudio(sides.back, sides.isBackForeign ? ttsLanguage : 'sv-SE'); }} className="bg-white/20 p-5 rounded-full text-white hover:bg-white/40 transition-colors shadow-sm"><Volume2 size={32} /></button>
-            </div>
+          <div className="absolute w-full h-full backface-hidden bg-gradient-to-br from-blue-500 to-indigo-600 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-10 rotate-y-180 border-8 border-blue-400 text-white">
+            <h2 className="text-6xl font-black text-center mb-8">{sides.back}</h2>
+            <button onClick={(e) => { e.stopPropagation(); playAudio(sides.back, sides.isBackForeign ? ttsLanguage : 'sv-SE'); }} className="bg-white/20 p-5 rounded-full text-white hover:bg-white/40 transition-colors shadow-sm"><Volume2 size={32} /></button>
           </div>
-
         </div>
       </div>
 
