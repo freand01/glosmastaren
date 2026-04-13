@@ -47,39 +47,79 @@ const defaultWords = [
 ];
 
 export default function App() {
-  const [words, setWords] = useState([]);
-  const [ttsLanguage, setTtsLanguage] = useState('en-US');
+  const [lists, setLists] = useState([]);
+  const [activeListId, setActiveListId] = useState(null);
   const [direction, setDirection] = useState('term-to-trans'); 
   const [currentView, setCurrentView] = useState('dashboard');
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // --- INITIAL LOAD ---
+  // --- INITIAL LOAD & MIGRATION ---
   useEffect(() => {
     const loadInitialData = () => {
+      let initialLists = [];
+      let initialActiveId = null;
+
+      // 1. Hämta befintliga listor
+      const savedLists = localStorage.getItem('glosmastaren_lists');
+      const savedActiveId = localStorage.getItem('glosmastaren_active_list');
+
+      if (savedLists) {
+        initialLists = JSON.parse(savedLists);
+        initialActiveId = savedActiveId || initialLists[0].id;
+      } else {
+        // Migrera från den äldre versionen som bara hade en lista
+        const oldWords = localStorage.getItem('glosmastaren_words');
+        const oldLang = localStorage.getItem('glosmastaren_lang');
+        
+        if (oldWords) {
+          const migratedList = { 
+            id: 'list-' + Date.now(), 
+            name: 'Min gamla lista', 
+            words: JSON.parse(oldWords), 
+            lang: oldLang || 'en-US' 
+          };
+          initialLists = [migratedList];
+          initialActiveId = migratedList.id;
+        } else {
+          // Standard-uppstart om man är helt ny
+          const defaultList = { 
+            id: 'list-default', 
+            name: 'Standardlista', 
+            words: defaultWords, 
+            lang: 'en-US' 
+          };
+          initialLists = [defaultList];
+          initialActiveId = defaultList.id;
+        }
+      }
+
+      // 2. Kolla om vi laddar appen via en delningslänk
       const urlParams = new URLSearchParams(window.location.search);
       const listData = urlParams.get('list');
 
       if (listData) {
         try {
           let decodedString;
-          // Försök först dekomprimera med LZString (nya metoden)
           const decompressed = LZString.decompressFromEncodedURIComponent(listData);
-          
-          if (decompressed) {
-            decodedString = decompressed;
-          } else {
-            // Fallback till gamla metoden (atob) för gamla länkar
-            decodedString = decodeURIComponent(atob(listData));
-          }
+          if (decompressed) decodedString = decompressed;
+          else decodedString = decodeURIComponent(atob(listData)); // Fallback
 
           const parsedData = JSON.parse(decodedString);
           
           if (parsedData.words && Array.isArray(parsedData.words)) {
-            setWords(parsedData.words);
-            if (parsedData.lang) setTtsLanguage(parsedData.lang);
+            const newList = {
+              id: 'list-' + Date.now(),
+              name: 'Inläst ' + new Date().toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' }),
+              words: parsedData.words,
+              lang: parsedData.lang || 'en-US'
+            };
+            
+            // Lägg till den delade listan som en ny flik!
+            initialLists.push(newList);
+            initialActiveId = newList.id;
+            
+            // Rensa URL:en så den blir ren och fin igen
             window.history.replaceState({}, document.title, window.location.pathname);
-            setIsLoaded(true);
-            return; 
           }
         } catch (e) {
           console.error("Kunde inte läsa in delningslänken", e);
@@ -87,14 +127,8 @@ export default function App() {
         }
       }
 
-      const savedWords = localStorage.getItem('glosmastaren_words');
-      const savedLang = localStorage.getItem('glosmastaren_lang');
-      
-      if (savedWords) setWords(JSON.parse(savedWords));
-      else setWords(defaultWords);
-      
-      if (savedLang) setTtsLanguage(savedLang);
-      
+      setLists(initialLists);
+      setActiveListId(initialActiveId);
       setIsLoaded(true);
     };
 
@@ -104,13 +138,34 @@ export default function App() {
   // --- AUTOSPARA ---
   useEffect(() => {
     if (isLoaded) {
-      localStorage.setItem('glosmastaren_words', JSON.stringify(words));
-      localStorage.setItem('glosmastaren_lang', ttsLanguage);
+      localStorage.setItem('glosmastaren_lists', JSON.stringify(lists));
+      localStorage.setItem('glosmastaren_active_list', activeListId);
     }
-  }, [words, ttsLanguage, isLoaded]);
+  }, [lists, activeListId, isLoaded]);
 
-  const toggleDirection = () => {
-    setDirection(prev => prev === 'term-to-trans' ? 'trans-to-term' : 'term-to-trans');
+  const toggleDirection = () => setDirection(prev => prev === 'term-to-trans' ? 'trans-to-term' : 'term-to-trans');
+
+  // --- DERIVED STATE FÖR DEN AKTIVA LISTAN ---
+  const activeList = lists.find(l => l.id === activeListId) || lists[0];
+  const words = activeList?.words || [];
+  const ttsLanguage = activeList?.lang || 'en-US';
+
+  // Lokala setters som bara uppdaterar den aktiva listan
+  const setWords = (newWords) => {
+    setLists(prev => prev.map(l => l.id === activeListId ? { ...l, words: newWords } : l));
+  };
+  const setTtsLanguage = (newLang) => {
+    setLists(prev => prev.map(l => l.id === activeListId ? { ...l, lang: newLang } : l));
+  };
+  const handleImport = (importedWords, importedLang) => {
+    const newList = {
+      id: 'list-' + Date.now(),
+      name: 'Importerad fil',
+      words: importedWords,
+      lang: importedLang || 'en-US'
+    };
+    setLists(prev => [...prev, newList]);
+    setActiveListId(newList.id);
   };
 
   if (!isLoaded) return <div className="min-h-screen bg-indigo-50 flex items-center justify-center font-bold text-indigo-400 text-2xl animate-pulse">Laddar spel...</div>;
@@ -144,9 +199,9 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4">
           <Navigation />
           <div className="animate-in slide-in-from-bottom-8 fade-in duration-500">
-            {currentView === 'dashboard' && <Dashboard setCurrentView={setCurrentView} wordsCount={words.length} />}
-            {currentView === 'add' && <ManageWords words={words} setWords={setWords} ttsLanguage={ttsLanguage} setTtsLanguage={setTtsLanguage} />}
-            {currentView === 'share' && <ShareSaveView words={words} setWords={setWords} ttsLanguage={ttsLanguage} setTtsLanguage={setTtsLanguage} />}
+            {currentView === 'dashboard' && <Dashboard setCurrentView={setCurrentView} wordsCount={words.length} listName={activeList?.name} />}
+            {currentView === 'add' && <ManageWords words={words} setWords={setWords} ttsLanguage={ttsLanguage} setTtsLanguage={setTtsLanguage} lists={lists} setLists={setLists} activeListId={activeListId} setActiveListId={setActiveListId} />}
+            {currentView === 'share' && <ShareSaveView words={words} ttsLanguage={ttsLanguage} activeListName={activeList?.name} handleImport={handleImport} />}
             {currentView === 'flashcards' && <Flashcards words={words} onBack={() => setCurrentView('dashboard')} ttsLanguage={ttsLanguage} direction={direction} />}
             {currentView === 'quiz' && <QuizMode words={words} onBack={() => setCurrentView('dashboard')} direction={direction} />}
             {currentView === 'type' && <TypingMode words={words} onBack={() => setCurrentView('dashboard')} direction={direction} />}
@@ -171,7 +226,10 @@ export default function App() {
       <div className="hidden print:block p-8 bg-white text-black font-sans min-h-screen">
         <div className="flex items-center gap-3 mb-8 border-b-4 border-slate-800 pb-4">
           <BookOpen size={40} className="text-slate-800" />
-          <h1 className="text-4xl font-black text-slate-800 tracking-tight">Glosmästaren</h1>
+          <div>
+            <h1 className="text-4xl font-black text-slate-800 tracking-tight">Glosmästaren</h1>
+            <p className="text-xl font-bold text-slate-500 uppercase tracking-widest">{activeList?.name}</p>
+          </div>
         </div>
         
         <table className="w-full text-lg border-collapse">
@@ -208,7 +266,7 @@ export default function App() {
 }
 
 // --- VYER (VIEWS) ---
-function Dashboard({ setCurrentView, wordsCount }) {
+function Dashboard({ setCurrentView, wordsCount, listName }) {
   const modes = [
     { id: 'flashcards', title: 'Flashcards', desc: 'Vänd på kort och lär dig grunderna.', icon: <RefreshCcw size={36} />, theme: 'bg-blue-500 border-blue-600 shadow-blue-200' },
     { id: 'quiz', title: 'Flervalsquiz', desc: 'Välj rätt översättning av fyra möjliga.', icon: <Check size={36} />, theme: 'bg-purple-500 border-purple-600 shadow-purple-200' },
@@ -224,7 +282,9 @@ function Dashboard({ setCurrentView, wordsCount }) {
       <header className="mb-12 text-center mt-8">
         <div className="inline-flex items-center justify-center p-3 bg-yellow-100 text-yellow-600 rounded-2xl mb-4 transform -rotate-6 shadow-sm border-2 border-yellow-200"><Sparkles size={28} /></div>
         <h2 className="text-5xl font-black text-slate-800 mb-4 tracking-tight">Vad vill du spela?</h2>
-        <p className="text-xl text-slate-600 font-medium">Du har <span className="inline-block bg-indigo-100 text-indigo-700 px-3 py-1 rounded-xl font-black border-2 border-indigo-200 transform rotate-2">{wordsCount} glosor</span> redo att bemästras!</p>
+        <p className="text-xl text-slate-600 font-medium">
+          Du övar på <span className="font-black text-indigo-600">{listName}</span> med <span className="inline-block bg-indigo-100 text-indigo-700 px-3 py-1 rounded-xl font-black border-2 border-indigo-200 transform rotate-2">{wordsCount} glosor</span> redo!
+        </p>
       </header>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 px-2">
         {modes.map((mode) => (
@@ -240,104 +300,183 @@ function Dashboard({ setCurrentView, wordsCount }) {
   );
 }
 
-function ManageWords({ words, setWords, ttsLanguage, setTtsLanguage }) {
+function ManageWords({ words, setWords, ttsLanguage, setTtsLanguage, lists, setLists, activeListId, setActiveListId }) {
   const [term, setTerm] = useState('');
   const [translation, setTranslation] = useState('');
+
   const handleAdd = (e) => {
     e.preventDefault();
     if (!term.trim() || !translation.trim()) return;
     setWords([...words, { id: Date.now(), term: term.trim(), translation: translation.trim() }]);
     setTerm(''); setTranslation('');
   };
+
+  const createNewList = () => {
+    const newList = { id: 'list-' + Date.now(), name: 'Ny gloslista', words: [], lang: 'en-US' };
+    setLists([...lists, newList]);
+    setActiveListId(newList.id);
+  };
+
+  const deleteList = (id) => {
+    if (lists.length === 1) return alert("Du måste ha minst en lista kvar!");
+    if (window.confirm("Är du säker på att du vill radera fliken och dess glosor?")) {
+      const newLists = lists.filter(l => l.id !== id);
+      setLists(newLists);
+      if (activeListId === id) setActiveListId(newLists[0].id);
+    }
+  };
+
+  const renameList = (id, newName) => {
+    setLists(lists.map(l => l.id === id ? { ...l, name: newName } : l));
+  };
+
   return (
-    <div className="max-w-4xl mx-auto bg-white p-6 sm:p-10 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border-4 border-white animate-in fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
-        <div>
-          <h2 className="text-4xl font-black mb-2 text-slate-800 tracking-tight">Gloslistan</h2>
-          <p className="text-slate-500 font-medium text-lg">Lägg till orden du vill spela med.</p>
-        </div>
-        <div className="relative w-full sm:w-auto bg-slate-50 p-3 rounded-3xl border-2 border-slate-100">
-          <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-2">Språk för uppläsning</label>
-          <div className="relative">
-            <select value={ttsLanguage} onChange={(e) => setTtsLanguage(e.target.value)} className="appearance-none w-full bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-2xl px-4 py-3 pr-10 focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500 outline-none transition-all cursor-pointer shadow-sm hover:bg-slate-50">
-              <option value="es-ES">🇪🇸 Spanska</option>
-              <option value="en-US">🇬🇧 Engelska</option>
-              <option value="de-DE">🇩🇪 Tyska</option>
-              <option value="fr-FR">🇫🇷 Franska</option>
-              <option value="sv-SE">🇸🇪 Svenska</option>
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500"><ChevronRight size={16} className="rotate-90" /></div>
-          </div>
-        </div>
-      </div>
-      <form onSubmit={handleAdd} className="flex flex-col sm:flex-row gap-4 mb-10 bg-slate-100 p-4 rounded-[2rem] border-2 border-slate-200/60 shadow-inner">
-        <div className="flex-1"><input type="text" value={term} onChange={(e) => setTerm(e.target.value)} className="w-full p-4 rounded-2xl border-4 border-white shadow-sm focus:border-indigo-400 focus:ring-0 outline-none font-bold text-lg text-slate-700 bg-white placeholder-slate-400 transition-colors" placeholder="Glosan (t.ex. Cat)" /></div>
-        <div className="flex-1"><input type="text" value={translation} onChange={(e) => setTranslation(e.target.value)} className="w-full p-4 rounded-2xl border-4 border-white shadow-sm focus:border-indigo-400 focus:ring-0 outline-none font-bold text-lg text-slate-700 bg-white placeholder-slate-400 transition-colors" placeholder="Svenska (t.ex. Katt)" /></div>
-        <div className="flex items-end"><button type="submit" className="w-full sm:w-auto h-full bg-indigo-500 hover:bg-indigo-400 text-white px-8 py-4 rounded-2xl border-b-[6px] border-indigo-700 active:border-b-0 active:translate-y-[6px] transition-all font-black text-lg flex justify-center items-center gap-2"><PlusCircle size={24} /> <span className="sm:hidden">Lägg till</span></button></div>
-      </form>
-      <div className="space-y-4">
-        {words.length === 0 ? <div className="text-center py-12 bg-slate-50 rounded-[2rem] border-4 border-dashed border-slate-200 text-slate-400 font-bold text-xl">Inga glosor än! Börja skriva ovan. 👆</div> : words.map((word, index) => (
-          <div key={word.id} className="group flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 sm:p-5 bg-white border-4 border-slate-100 rounded-3xl hover:border-indigo-200 hover:shadow-lg hover:shadow-indigo-100/50 transition-all gap-4">
-            <div className="flex gap-3 sm:gap-6 items-center w-full">
-              <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-black shrink-0">{index + 1}</div>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 flex-1">
-                <span className="font-black text-xl text-slate-700 w-full sm:w-1/3 truncate">{word.term}</span>
-                <button onClick={() => playAudio(word.term, ttsLanguage)} className="bg-indigo-50 p-2 rounded-xl text-indigo-500 hover:bg-indigo-500 hover:text-white transition-colors shrink-0 self-start sm:self-auto"><Volume2 size={20} /></button>
-                <span className="text-slate-300 hidden sm:block">➔</span>
-                <span className="font-bold text-lg text-slate-500 flex-1 break-all">{word.translation}</span>
-              </div>
+    <div className="max-w-4xl mx-auto animate-in fade-in">
+      
+      {/* --- FLIK-SYSTEM --- */}
+      <div className="mb-6 p-3 sm:p-4 bg-slate-50/80 backdrop-blur-md rounded-[2rem] border-2 border-white shadow-lg overflow-hidden flex flex-col">
+        <div className="flex items-center gap-3 overflow-x-auto pb-2 snap-x hide-scrollbar">
+          {lists.map(list => (
+            <div 
+              key={list.id} 
+              onClick={() => setActiveListId(list.id)}
+              className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold whitespace-nowrap cursor-pointer transition-all snap-start shrink-0 border-2 ${list.id === activeListId ? 'bg-indigo-500 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}
+            >
+              {list.id === activeListId ? (
+                <input 
+                  value={list.name}
+                  onChange={(e) => renameList(list.id, e.target.value)}
+                  className="bg-transparent outline-none font-black w-32 sm:w-40 placeholder-indigo-300 text-white"
+                  placeholder="Namnge lista..."
+                  onClick={e => e.stopPropagation()}
+                />
+              ) : (
+                <span>{list.name}</span>
+              )}
+              
+              {lists.length > 1 && list.id === activeListId && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); deleteList(list.id); }} 
+                  className="ml-2 p-1.5 bg-indigo-600 rounded-full hover:bg-red-500 transition-colors"
+                  title="Radera lista"
+                >
+                  <X size={14} className="text-white" />
+                </button>
+              )}
             </div>
-            <button onClick={() => setWords(words.filter(w => w.id !== word.id))} className="bg-red-50 p-3 rounded-xl text-red-500 hover:bg-red-500 hover:text-white border-b-4 border-red-200 hover:border-red-700 active:border-b-0 active:translate-y-[4px] transition-all shrink-0 self-end sm:self-auto"><X size={24} /></button>
+          ))}
+          <button 
+            onClick={createNewList} 
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl font-bold whitespace-nowrap bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all border-2 border-indigo-200 border-dashed shrink-0"
+          >
+            <PlusCircle size={20} /> Ny flik
+          </button>
+        </div>
+        <p className="text-[10px] sm:text-xs text-slate-400 mt-2 ml-2 uppercase tracking-widest font-black opacity-60">Klicka på texten i din aktiva flik för att byta namn</p>
+      </div>
+
+      {/* --- HANTERA ORD --- */}
+      <div className="bg-white p-6 sm:p-10 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border-4 border-white">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
+          <div>
+            <h2 className="text-4xl font-black mb-2 text-slate-800 tracking-tight">Gloslistan</h2>
+            <p className="text-slate-500 font-medium text-lg">Lägg till orden för den här fliken.</p>
           </div>
-        ))}
+          <div className="relative w-full sm:w-auto bg-slate-50 p-3 rounded-3xl border-2 border-slate-100">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-2">Språk för uppläsning</label>
+            <div className="relative">
+              <select value={ttsLanguage} onChange={(e) => setTtsLanguage(e.target.value)} className="appearance-none w-full bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-2xl px-4 py-3 pr-10 focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500 outline-none transition-all cursor-pointer shadow-sm hover:bg-slate-50">
+                <option value="es-ES">🇪🇸 Spanska</option>
+                <option value="en-US">🇬🇧 Engelska</option>
+                <option value="de-DE">🇩🇪 Tyska</option>
+                <option value="fr-FR">🇫🇷 Franska</option>
+                <option value="sv-SE">🇸🇪 Svenska</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500"><ChevronRight size={16} className="rotate-90" /></div>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleAdd} className="flex flex-col sm:flex-row gap-4 mb-10 bg-slate-100 p-4 rounded-[2rem] border-2 border-slate-200/60 shadow-inner">
+          <div className="flex-1"><input type="text" value={term} onChange={(e) => setTerm(e.target.value)} className="w-full p-4 rounded-2xl border-4 border-white shadow-sm focus:border-indigo-400 focus:ring-0 outline-none font-bold text-lg text-slate-700 bg-white placeholder-slate-400 transition-colors" placeholder="Glosan (t.ex. Cat)" /></div>
+          <div className="flex-1"><input type="text" value={translation} onChange={(e) => setTranslation(e.target.value)} className="w-full p-4 rounded-2xl border-4 border-white shadow-sm focus:border-indigo-400 focus:ring-0 outline-none font-bold text-lg text-slate-700 bg-white placeholder-slate-400 transition-colors" placeholder="Svenska (t.ex. Katt)" /></div>
+          <div className="flex items-end"><button type="submit" className="w-full sm:w-auto h-full bg-indigo-500 hover:bg-indigo-400 text-white px-8 py-4 rounded-2xl border-b-[6px] border-indigo-700 active:border-b-0 active:translate-y-[6px] transition-all font-black text-lg flex justify-center items-center gap-2"><PlusCircle size={24} /> <span className="sm:hidden">Lägg till</span></button></div>
+        </form>
+
+        <div className="space-y-4">
+          {words.length === 0 ? <div className="text-center py-12 bg-slate-50 rounded-[2rem] border-4 border-dashed border-slate-200 text-slate-400 font-bold text-xl">Den här listan är tom! Börja skriva ovan. 👆</div> : words.map((word, index) => (
+            <div key={word.id} className="group flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 sm:p-5 bg-white border-4 border-slate-100 rounded-3xl hover:border-indigo-200 hover:shadow-lg hover:shadow-indigo-100/50 transition-all gap-4">
+              <div className="flex gap-3 sm:gap-6 items-center w-full">
+                <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-black shrink-0">{index + 1}</div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 flex-1">
+                  <span className="font-black text-xl text-slate-700 w-full sm:w-1/3 truncate">{word.term}</span>
+                  <button onClick={() => playAudio(word.term, ttsLanguage)} className="bg-indigo-50 p-2 rounded-xl text-indigo-500 hover:bg-indigo-500 hover:text-white transition-colors shrink-0 self-start sm:self-auto"><Volume2 size={20} /></button>
+                  <span className="text-slate-300 hidden sm:block">➔</span>
+                  <span className="font-bold text-lg text-slate-500 flex-1 break-all">{word.translation}</span>
+                </div>
+              </div>
+              <button onClick={() => setWords(words.filter(w => w.id !== word.id))} className="bg-red-50 p-3 rounded-xl text-red-500 hover:bg-red-500 hover:text-white border-b-4 border-red-200 hover:border-red-700 active:border-b-0 active:translate-y-[4px] transition-all shrink-0 self-end sm:self-auto"><X size={24} /></button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function ShareSaveView({ words, setWords, ttsLanguage, setTtsLanguage }) {
+function ShareSaveView({ words, ttsLanguage, activeListName, handleImport }) {
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef(null);
+
   const generateShareLink = () => {
-    if (words.length === 0) return alert("Du måste ha några glosor i listan innan du kan dela den.");
+    if (words.length === 0) return alert("Din valda flik är tom! Lägg till glosor innan du delar.");
     const payload = { words, lang: ttsLanguage };
     const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(payload));
     const baseUrl = window.location.origin + window.location.pathname;
     const finalUrl = `${baseUrl}?list=${compressed}`;
     navigator.clipboard.writeText(finalUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 3000); }).catch(() => prompt("Kopiera denna länk:", finalUrl));
   };
+
   const downloadJSON = () => {
     if (words.length === 0) return alert("Listan är tom.");
     const payload = { words, lang: ttsLanguage };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
     const dlAnchorElem = document.createElement('a');
-    dlAnchorElem.setAttribute("href", dataStr); dlAnchorElem.setAttribute("download", "min_gloslista.json"); dlAnchorElem.click();
+    dlAnchorElem.setAttribute("href", dataStr); 
+    const safeName = (activeListName || "Gloslista").replace(/[^a-z0-9åäö]/gi, '_').toLowerCase();
+    dlAnchorElem.setAttribute("download", `${safeName}.json`); 
+    dlAnchorElem.click();
   };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const result = JSON.parse(event.target.result);
-        if (result.words && Array.isArray(result.words)) { setWords(result.words); if (result.lang) setTtsLanguage(result.lang); alert("Gloslistan laddades in!"); }
+        if (result.words && Array.isArray(result.words)) { 
+          handleImport(result.words, result.lang);
+          alert("Gloslistan laddades in som en ny flik!"); 
+        } else alert("Fel format på filen.");
       } catch (error) { alert("Kunde inte läsa filen."); }
     };
     reader.readAsText(file); e.target.value = '';
   };
+
   return (
     <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in">
       <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-8 sm:p-10 rounded-[2.5rem] shadow-xl text-white border-b-[8px] border-indigo-800">
-        <div className="flex items-center gap-4 mb-6"><div className="p-4 bg-white/20 rounded-2xl"><LinkIcon size={40} /></div><h3 className="text-3xl font-black tracking-tight">Dela listan</h3></div>
-        <p className="text-indigo-100 font-medium mb-10 text-lg leading-relaxed">Skapa en magisk länk. Eleverna klickar på länken och börjar spela direkt — ingen inloggning krävs!</p>
-        <button onClick={generateShareLink} className={`w-full font-black py-6 rounded-2xl text-xl flex items-center justify-center gap-3 transition-all border-b-[6px] active:border-b-0 active:translate-y-[6px] ${copied ? 'bg-green-400 text-white border-green-600' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'}`}>{copied ? <Check size={28} /> : <Copy size={28} />}{copied ? "Länken är kopierad!" : "Skapa & Kopiera Länk"}</button>
+        <div className="flex items-center gap-4 mb-6"><div className="p-4 bg-white/20 rounded-2xl"><LinkIcon size={40} /></div><h3 className="text-3xl font-black tracking-tight">Dela "{activeListName}"</h3></div>
+        <p className="text-indigo-100 font-medium mb-10 text-lg leading-relaxed">Skapa en magisk länk för den här specifika fliken. Eleverna klickar på länken och börjar spela direkt!</p>
+        <button onClick={generateShareLink} className={`w-full font-black py-6 rounded-2xl text-xl flex items-center justify-center gap-3 transition-all border-b-[6px] active:border-b-0 active:translate-y-[6px] ${copied ? 'bg-green-400 text-white border-green-600' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'}`}>{copied ? <Check size={28} /> : <Copy size={28} />}{copied ? "Länken är kopierad!" : "Kopiera Länk till fliken"}</button>
       </div>
       <div className="bg-white p-8 sm:p-10 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border-4 border-white">
         <div className="flex items-center gap-4 mb-6"><div className="p-4 bg-slate-100 text-slate-500 rounded-2xl"><Download size={40} /></div><h3 className="text-3xl font-black text-slate-800 tracking-tight">Exportera & Spara</h3></div>
-        <p className="text-slate-500 font-medium mb-8 text-lg leading-relaxed">Spara en backup på datorn, öppna en gammal lista, eller skriv ut glosorna på papper.</p>
+        <p className="text-slate-500 font-medium mb-8 text-lg leading-relaxed">Spara en backup av fliken på din dator, öppna en gammal lista, eller skriv ut glosorna på papper.</p>
         <div className="flex flex-col gap-4">
-          <button onClick={() => window.print()} className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-b-4 border-indigo-200 font-bold py-5 rounded-2xl transition-all active:border-b-0 active:translate-y-[4px] flex items-center justify-center gap-3 text-lg"><Printer size={24} /> Skriv ut gloslista</button>
-          <button onClick={downloadJSON} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 border-b-4 border-slate-300 font-bold py-5 rounded-2xl transition-all active:border-b-0 active:translate-y-[4px] flex items-center justify-center gap-3 text-lg"><Download size={24} /> Ladda ner fil (.json)</button>
-          <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 border-b-4 border-slate-300 font-bold py-5 rounded-2xl transition-all active:border-b-0 active:translate-y-[4px] flex items-center justify-center gap-3 text-lg"><Upload size={24} /> Öppna fil från datorn</button>
+          <button onClick={() => window.print()} className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-b-4 border-indigo-200 font-bold py-5 rounded-2xl transition-all active:border-b-0 active:translate-y-[4px] flex items-center justify-center gap-3 text-lg"><Printer size={24} /> Skriv ut fliken på papper</button>
+          <button onClick={downloadJSON} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 border-b-4 border-slate-300 font-bold py-5 rounded-2xl transition-all active:border-b-0 active:translate-y-[4px] flex items-center justify-center gap-3 text-lg"><Download size={24} /> Ladda ner fliken (.json)</button>
+          <button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 border-b-4 border-slate-300 font-bold py-5 rounded-2xl transition-all active:border-b-0 active:translate-y-[4px] flex items-center justify-center gap-3 text-lg"><Upload size={24} /> Öppna fil (Skapar ny flik)</button>
           <input type="file" accept=".json" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
         </div>
       </div>
@@ -345,7 +484,7 @@ function ShareSaveView({ words, setWords, ttsLanguage, setTtsLanguage }) {
   );
 }
 
-// --- SPEL-MODULER (SAMMA SOM TIDIGARE) ---
+// --- SPEL-MODULER ---
 function Flashcards({ words, onBack, ttsLanguage, direction }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
