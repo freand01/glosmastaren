@@ -23,7 +23,8 @@ import {
   Upload,
   Copy,
   Sparkles,
-  Printer
+  Printer,
+  List // Lade till list-ikonen!
 } from 'lucide-react';
 
 // --- GLOBAL TTS HELPER ---
@@ -52,14 +53,46 @@ export default function App() {
   const [direction, setDirection] = useState('term-to-trans'); 
   const [currentView, setCurrentView] = useState('dashboard');
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isStudentMode, setIsStudentMode] = useState(false);
 
   // --- INITIAL LOAD & MIGRATION ---
   useEffect(() => {
     const loadInitialData = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const listData = urlParams.get('list');
+
+      if (listData) {
+        try {
+          let decodedString;
+          const decompressed = LZString.decompressFromEncodedURIComponent(listData);
+          if (decompressed) decodedString = decompressed;
+          else decodedString = decodeURIComponent(atob(listData));
+
+          const parsedData = JSON.parse(decodedString);
+          
+          if (parsedData.words && Array.isArray(parsedData.words)) {
+            const studentList = {
+              id: 'list-student',
+              name: parsedData.name || 'Glosläxa',
+              words: parsedData.words,
+              lang: parsedData.lang || 'en-US'
+            };
+            
+            setLists([studentList]);
+            setActiveListId(studentList.id);
+            setIsStudentMode(true);
+            setIsLoaded(true);
+            return; 
+          }
+        } catch (e) {
+          console.error("Kunde inte läsa in delningslänken", e);
+          alert("Länken verkar vara trasig eller för gammal.");
+        }
+      }
+
       let initialLists = [];
       let initialActiveId = null;
 
-      // 1. Hämta befintliga listor
       const savedLists = localStorage.getItem('glosmastaren_lists');
       const savedActiveId = localStorage.getItem('glosmastaren_active_list');
 
@@ -67,7 +100,6 @@ export default function App() {
         initialLists = JSON.parse(savedLists);
         initialActiveId = savedActiveId || initialLists[0].id;
       } else {
-        // Migrera från den äldre versionen som bara hade en lista
         const oldWords = localStorage.getItem('glosmastaren_words');
         const oldLang = localStorage.getItem('glosmastaren_lang');
         
@@ -81,7 +113,6 @@ export default function App() {
           initialLists = [migratedList];
           initialActiveId = migratedList.id;
         } else {
-          // Standard-uppstart om man är helt ny
           const defaultList = { 
             id: 'list-default', 
             name: 'Standardlista', 
@@ -90,40 +121,6 @@ export default function App() {
           };
           initialLists = [defaultList];
           initialActiveId = defaultList.id;
-        }
-      }
-
-      // 2. Kolla om vi laddar appen via en delningslänk
-      const urlParams = new URLSearchParams(window.location.search);
-      const listData = urlParams.get('list');
-
-      if (listData) {
-        try {
-          let decodedString;
-          const decompressed = LZString.decompressFromEncodedURIComponent(listData);
-          if (decompressed) decodedString = decompressed;
-          else decodedString = decodeURIComponent(atob(listData)); // Fallback
-
-          const parsedData = JSON.parse(decodedString);
-          
-          if (parsedData.words && Array.isArray(parsedData.words)) {
-            const newList = {
-              id: 'list-' + Date.now(),
-              name: 'Inläst ' + new Date().toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' }),
-              words: parsedData.words,
-              lang: parsedData.lang || 'en-US'
-            };
-            
-            // Lägg till den delade listan som en ny flik!
-            initialLists.push(newList);
-            initialActiveId = newList.id;
-            
-            // Rensa URL:en så den blir ren och fin igen
-            window.history.replaceState({}, document.title, window.location.pathname);
-          }
-        } catch (e) {
-          console.error("Kunde inte läsa in delningslänken", e);
-          alert("Länken verkar vara trasig eller för gammal.");
         }
       }
 
@@ -137,20 +134,18 @@ export default function App() {
 
   // --- AUTOSPARA ---
   useEffect(() => {
-    if (isLoaded) {
+    if (isLoaded && !isStudentMode) {
       localStorage.setItem('glosmastaren_lists', JSON.stringify(lists));
       localStorage.setItem('glosmastaren_active_list', activeListId);
     }
-  }, [lists, activeListId, isLoaded]);
+  }, [lists, activeListId, isLoaded, isStudentMode]);
 
   const toggleDirection = () => setDirection(prev => prev === 'term-to-trans' ? 'trans-to-term' : 'term-to-trans');
 
-  // --- DERIVED STATE FÖR DEN AKTIVA LISTAN ---
   const activeList = lists.find(l => l.id === activeListId) || lists[0];
   const words = activeList?.words || [];
   const ttsLanguage = activeList?.lang || 'en-US';
 
-  // Lokala setters som bara uppdaterar den aktiva listan
   const setWords = (newWords) => {
     setLists(prev => prev.map(l => l.id === activeListId ? { ...l, words: newWords } : l));
   };
@@ -176,7 +171,10 @@ export default function App() {
         <div className="bg-indigo-500 p-3 rounded-2xl group-hover:rotate-12 group-hover:scale-110 transition-all shadow-[0_4px_0_0_#312e81]">
           <BookOpen className="text-white" size={28} />
         </div>
-        <h1 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-br from-indigo-600 to-purple-600 tracking-tight">Glosmästaren</h1>
+        <div className="flex items-center">
+          <h1 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-br from-indigo-600 to-purple-600 tracking-tight">Glosmästaren</h1>
+          {isStudentMode && <span className="bg-indigo-100 text-indigo-700 text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ml-3 border border-indigo-200 hidden sm:block">Elevläge</span>}
+        </div>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-3 w-full md:w-auto">
         <button onClick={toggleDirection} className="flex items-center gap-2 bg-indigo-100 text-indigo-700 border-2 border-indigo-200 px-4 py-3 rounded-2xl font-bold hover:bg-indigo-200 hover:border-indigo-300 transition-all shadow-sm active:scale-95" title="Vänd håll på översättningen">
@@ -184,24 +182,29 @@ export default function App() {
           <ArrowRightLeft size={18} className="text-indigo-500" />
           <span className="w-16 text-left hidden sm:block">{direction === 'term-to-trans' ? 'Svenska' : 'Glosa'}</span>
         </button>
-        <div className="w-1 h-8 bg-slate-200 rounded-full mx-2 hidden md:block"></div>
-        <button onClick={() => setCurrentView('dashboard')} className={`px-5 py-3 rounded-2xl font-black transition-all ${currentView === 'dashboard' ? 'bg-indigo-500 text-white shadow-[0_4px_0_0_#312e81] translate-y-[-2px]' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}>Spela</button>
-        <button onClick={() => setCurrentView('add')} className={`px-5 py-3 rounded-2xl font-black transition-all ${currentView === 'add' ? 'bg-indigo-500 text-white shadow-[0_4px_0_0_#312e81] translate-y-[-2px]' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}>Gloslista</button>
-        <button onClick={() => setCurrentView('share')} className={`px-5 py-3 rounded-2xl font-black transition-all ${currentView === 'share' ? 'bg-indigo-500 text-white shadow-[0_4px_0_0_#312e81] translate-y-[-2px]' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}>Dela/Spara</button>
+        
+        {!isStudentMode && (
+          <>
+            <div className="w-1 h-8 bg-slate-200 rounded-full mx-2 hidden md:block"></div>
+            <button onClick={() => setCurrentView('dashboard')} className={`px-5 py-3 rounded-2xl font-black transition-all ${currentView === 'dashboard' ? 'bg-indigo-500 text-white shadow-[0_4px_0_0_#312e81] translate-y-[-2px]' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}>Spela</button>
+            <button onClick={() => setCurrentView('add')} className={`px-5 py-3 rounded-2xl font-black transition-all ${currentView === 'add' ? 'bg-indigo-500 text-white shadow-[0_4px_0_0_#312e81] translate-y-[-2px]' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}>Gloslista</button>
+            <button onClick={() => setCurrentView('share')} className={`px-5 py-3 rounded-2xl font-black transition-all ${currentView === 'share' ? 'bg-indigo-500 text-white shadow-[0_4px_0_0_#312e81] translate-y-[-2px]' : 'bg-transparent text-slate-500 hover:bg-slate-100'}`}>Dela/Spara</button>
+          </>
+        )}
       </div>
     </nav>
   );
 
   return (
     <>
-      {/* --- VANLIGA APPEN (Döljs när man skriver ut) --- */}
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 font-sans text-slate-800 pb-16 print:hidden">
         <div className="max-w-6xl mx-auto px-4">
           <Navigation />
           <div className="animate-in slide-in-from-bottom-8 fade-in duration-500">
             {currentView === 'dashboard' && <Dashboard setCurrentView={setCurrentView} wordsCount={words.length} listName={activeList?.name} />}
-            {currentView === 'add' && <ManageWords words={words} setWords={setWords} ttsLanguage={ttsLanguage} setTtsLanguage={setTtsLanguage} lists={lists} setLists={setLists} activeListId={activeListId} setActiveListId={setActiveListId} />}
-            {currentView === 'share' && <ShareSaveView words={words} ttsLanguage={ttsLanguage} activeListName={activeList?.name} handleImport={handleImport} />}
+            {currentView === 'wordlist' && <WordListView words={words} onBack={() => setCurrentView('dashboard')} ttsLanguage={ttsLanguage} direction={direction} />}
+            {currentView === 'add' && !isStudentMode && <ManageWords words={words} setWords={setWords} ttsLanguage={ttsLanguage} setTtsLanguage={setTtsLanguage} lists={lists} setLists={setLists} activeListId={activeListId} setActiveListId={setActiveListId} />}
+            {currentView === 'share' && !isStudentMode && <ShareSaveView words={words} ttsLanguage={ttsLanguage} activeListName={activeList?.name} handleImport={handleImport} />}
             {currentView === 'flashcards' && <Flashcards words={words} onBack={() => setCurrentView('dashboard')} ttsLanguage={ttsLanguage} direction={direction} />}
             {currentView === 'quiz' && <QuizMode words={words} onBack={() => setCurrentView('dashboard')} direction={direction} />}
             {currentView === 'type' && <TypingMode words={words} onBack={() => setCurrentView('dashboard')} direction={direction} />}
@@ -222,7 +225,6 @@ export default function App() {
         `}} />
       </div>
 
-      {/* --- UTSKRIFTSVY (Visas BARA när man skriver ut) --- */}
       <div className="hidden print:block p-8 bg-white text-black font-sans min-h-screen">
         <div className="flex items-center gap-3 mb-8 border-b-4 border-slate-800 pb-4">
           <BookOpen size={40} className="text-slate-800" />
@@ -256,7 +258,6 @@ export default function App() {
             ))}
           </tbody>
         </table>
-        
         <div className="mt-12 text-center text-slate-400 font-bold uppercase tracking-widest text-sm">
           Totalt {words.length} ord • Utskriven från Glosmästaren
         </div>
@@ -268,6 +269,7 @@ export default function App() {
 // --- VYER (VIEWS) ---
 function Dashboard({ setCurrentView, wordsCount, listName }) {
   const modes = [
+    { id: 'wordlist', title: 'Översikt', desc: 'Titta igenom och lyssna på alla glosor.', icon: <List size={36} />, theme: 'bg-amber-500 border-amber-600 shadow-amber-200' },
     { id: 'flashcards', title: 'Flashcards', desc: 'Vänd på kort och lär dig grunderna.', icon: <RefreshCcw size={36} />, theme: 'bg-blue-500 border-blue-600 shadow-blue-200' },
     { id: 'quiz', title: 'Flervalsquiz', desc: 'Välj rätt översättning av fyra möjliga.', icon: <Check size={36} />, theme: 'bg-purple-500 border-purple-600 shadow-purple-200' },
     { id: 'match', title: 'Matchning', desc: 'Para ihop ord och översättning snabbt.', icon: <Gamepad2 size={36} />, theme: 'bg-pink-500 border-pink-600 shadow-pink-200' },
@@ -295,6 +297,64 @@ function Dashboard({ setCurrentView, wordsCount, listName }) {
             <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-white opacity-10 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500"></div>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// --- NY VY: ÖVERSIKT ---
+function WordListView({ words, onBack, ttsLanguage, direction }) {
+  if (words.length === 0) return <EmptyState onBack={onBack} />;
+  return (
+    <div className="max-w-4xl mx-auto">
+      <GameHeader onBack={onBack} />
+      <div className="bg-white p-6 sm:p-10 rounded-[3rem] shadow-xl shadow-amber-100/50 border-4 border-white">
+        <div className="flex items-center gap-4 mb-8">
+          <div className="p-4 bg-amber-100 text-amber-600 rounded-2xl">
+            <List size={32} />
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-black text-slate-800 tracking-tight">Gloslista</h2>
+        </div>
+        
+        <div className="overflow-hidden rounded-[2rem] border-2 border-slate-100 shadow-inner bg-slate-50">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-100/50">
+                <th className="p-4 sm:p-6 font-black text-slate-500 uppercase tracking-widest border-b-2 border-slate-200 w-1/2">
+                  {direction === 'term-to-trans' ? 'Glosa' : 'Svenska'}
+                </th>
+                <th className="p-4 sm:p-6 font-black text-slate-500 uppercase tracking-widest border-b-2 border-slate-200 w-1/2">
+                  {direction === 'term-to-trans' ? 'Svenska' : 'Glosa'}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {words.map((word, i) => {
+                const sides = getCardSides(word, direction);
+                return (
+                  <tr key={word.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                    <td className="p-4 sm:p-6 border-b border-slate-100">
+                      <div className="flex items-center justify-between gap-2 sm:gap-4">
+                        <span className="font-bold text-lg sm:text-xl text-slate-800 break-all">{sides.front}</span>
+                        <button onClick={() => playAudio(sides.front, sides.isFrontForeign ? ttsLanguage : 'sv-SE')} className="p-2 sm:p-3 bg-indigo-50 text-indigo-500 rounded-xl hover:bg-indigo-500 hover:text-white transition-colors shrink-0">
+                          <Volume2 size={20} />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="p-4 sm:p-6 border-b border-slate-100">
+                      <div className="flex items-center justify-between gap-2 sm:gap-4">
+                        <span className="font-bold text-lg sm:text-xl text-slate-800 break-all">{sides.back}</span>
+                        <button onClick={() => playAudio(sides.back, sides.isBackForeign ? ttsLanguage : 'sv-SE')} className="p-2 sm:p-3 bg-indigo-50 text-indigo-500 rounded-xl hover:bg-indigo-500 hover:text-white transition-colors shrink-0">
+                          <Volume2 size={20} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -332,65 +392,27 @@ function ManageWords({ words, setWords, ttsLanguage, setTtsLanguage, lists, setL
 
   return (
     <div className="max-w-4xl mx-auto animate-in fade-in">
-      
-      {/* --- FLIK-SYSTEM --- */}
       <div className="mb-6 p-3 sm:p-4 bg-slate-50/80 backdrop-blur-md rounded-[2rem] border-2 border-white shadow-lg overflow-hidden flex flex-col">
         <div className="flex items-center gap-3 overflow-x-auto pb-2 snap-x hide-scrollbar">
           {lists.map(list => (
-            <div 
-              key={list.id} 
-              onClick={() => setActiveListId(list.id)}
-              className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold whitespace-nowrap cursor-pointer transition-all snap-start shrink-0 border-2 ${list.id === activeListId ? 'bg-indigo-500 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}
-            >
-              {list.id === activeListId ? (
-                <input 
-                  value={list.name}
-                  onChange={(e) => renameList(list.id, e.target.value)}
-                  className="bg-transparent outline-none font-black w-32 sm:w-40 placeholder-indigo-300 text-white"
-                  placeholder="Namnge lista..."
-                  onClick={e => e.stopPropagation()}
-                />
-              ) : (
-                <span>{list.name}</span>
-              )}
-              
-              {lists.length > 1 && list.id === activeListId && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); deleteList(list.id); }} 
-                  className="ml-2 p-1.5 bg-indigo-600 rounded-full hover:bg-red-500 transition-colors"
-                  title="Radera lista"
-                >
-                  <X size={14} className="text-white" />
-                </button>
-              )}
+            <div key={list.id} onClick={() => setActiveListId(list.id)} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-bold whitespace-nowrap cursor-pointer transition-all snap-start shrink-0 border-2 ${list.id === activeListId ? 'bg-indigo-500 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100 hover:border-slate-300'}`}>
+              {list.id === activeListId ? <input value={list.name} onChange={(e) => renameList(list.id, e.target.value)} className="bg-transparent outline-none font-black w-32 sm:w-40 placeholder-indigo-300 text-white" placeholder="Namnge lista..." onClick={e => e.stopPropagation()} /> : <span>{list.name}</span>}
+              {lists.length > 1 && list.id === activeListId && <button onClick={(e) => { e.stopPropagation(); deleteList(list.id); }} className="ml-2 p-1.5 bg-indigo-600 rounded-full hover:bg-red-500 transition-colors" title="Radera lista"><X size={14} className="text-white" /></button>}
             </div>
           ))}
-          <button 
-            onClick={createNewList} 
-            className="flex items-center gap-2 px-5 py-3 rounded-2xl font-bold whitespace-nowrap bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all border-2 border-indigo-200 border-dashed shrink-0"
-          >
-            <PlusCircle size={20} /> Ny flik
-          </button>
+          <button onClick={createNewList} className="flex items-center gap-2 px-5 py-3 rounded-2xl font-bold whitespace-nowrap bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all border-2 border-indigo-200 border-dashed shrink-0"><PlusCircle size={20} /> Ny flik</button>
         </div>
         <p className="text-[10px] sm:text-xs text-slate-400 mt-2 ml-2 uppercase tracking-widest font-black opacity-60">Klicka på texten i din aktiva flik för att byta namn</p>
       </div>
 
-      {/* --- HANTERA ORD --- */}
       <div className="bg-white p-6 sm:p-10 rounded-[2.5rem] shadow-xl shadow-slate-200/50 border-4 border-white">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
-          <div>
-            <h2 className="text-4xl font-black mb-2 text-slate-800 tracking-tight">Gloslistan</h2>
-            <p className="text-slate-500 font-medium text-lg">Lägg till orden för den här fliken.</p>
-          </div>
+          <div><h2 className="text-4xl font-black mb-2 text-slate-800 tracking-tight">Gloslistan</h2><p className="text-slate-500 font-medium text-lg">Lägg till orden för den här fliken.</p></div>
           <div className="relative w-full sm:w-auto bg-slate-50 p-3 rounded-3xl border-2 border-slate-100">
             <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-2">Språk för uppläsning</label>
             <div className="relative">
               <select value={ttsLanguage} onChange={(e) => setTtsLanguage(e.target.value)} className="appearance-none w-full bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-2xl px-4 py-3 pr-10 focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500 outline-none transition-all cursor-pointer shadow-sm hover:bg-slate-50">
-                <option value="es-ES">🇪🇸 Spanska</option>
-                <option value="en-US">🇬🇧 Engelska</option>
-                <option value="de-DE">🇩🇪 Tyska</option>
-                <option value="fr-FR">🇫🇷 Franska</option>
-                <option value="sv-SE">🇸🇪 Svenska</option>
+                <option value="es-ES">🇪🇸 Spanska</option><option value="en-US">🇬🇧 Engelska</option><option value="de-DE">🇩🇪 Tyska</option><option value="fr-FR">🇫🇷 Franska</option><option value="sv-SE">🇸🇪 Svenska</option>
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500"><ChevronRight size={16} className="rotate-90" /></div>
             </div>
@@ -408,8 +430,8 @@ function ManageWords({ words, setWords, ttsLanguage, setTtsLanguage, lists, setL
             <div key={word.id} className="group flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 sm:p-5 bg-white border-4 border-slate-100 rounded-3xl hover:border-indigo-200 hover:shadow-lg hover:shadow-indigo-100/50 transition-all gap-4">
               <div className="flex gap-3 sm:gap-6 items-center w-full">
                 <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-black shrink-0">{index + 1}</div>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 flex-1">
-                  <span className="font-black text-xl text-slate-700 w-full sm:w-1/3 truncate">{word.term}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-6 flex-1 overflow-hidden">
+                  <span className="font-black text-xl text-slate-700 w-full sm:w-1/3 break-all">{word.term}</span>
                   <button onClick={() => playAudio(word.term, ttsLanguage)} className="bg-indigo-50 p-2 rounded-xl text-indigo-500 hover:bg-indigo-500 hover:text-white transition-colors shrink-0 self-start sm:self-auto"><Volume2 size={20} /></button>
                   <span className="text-slate-300 hidden sm:block">➔</span>
                   <span className="font-bold text-lg text-slate-500 flex-1 break-all">{word.translation}</span>
@@ -430,7 +452,7 @@ function ShareSaveView({ words, ttsLanguage, activeListName, handleImport }) {
 
   const generateShareLink = () => {
     if (words.length === 0) return alert("Din valda flik är tom! Lägg till glosor innan du delar.");
-    const payload = { words, lang: ttsLanguage };
+    const payload = { words, lang: ttsLanguage, name: activeListName };
     const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(payload));
     const baseUrl = window.location.origin + window.location.pathname;
     const finalUrl = `${baseUrl}?list=${compressed}`;
@@ -439,7 +461,7 @@ function ShareSaveView({ words, ttsLanguage, activeListName, handleImport }) {
 
   const downloadJSON = () => {
     if (words.length === 0) return alert("Listan är tom.");
-    const payload = { words, lang: ttsLanguage };
+    const payload = { words, lang: ttsLanguage, name: activeListName };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute("href", dataStr); 
@@ -485,6 +507,72 @@ function ShareSaveView({ words, ttsLanguage, activeListName, handleImport }) {
 }
 
 // --- SPEL-MODULER ---
+const getCardSides = (word, direction) => ({
+  front: direction === 'term-to-trans' ? word.term : word.translation,
+  back: direction === 'term-to-trans' ? word.translation : word.term,
+  isFrontForeign: direction === 'term-to-trans',
+  isBackForeign: direction !== 'term-to-trans'
+});
+
+const GameHeader = ({ current, total, onBack, score }) => (
+  <div className="flex flex-wrap justify-between items-center mb-8 gap-4">
+    <button onClick={onBack} className="flex items-center gap-2 bg-white text-slate-600 font-bold px-5 py-3 rounded-2xl shadow-sm border-b-4 border-slate-200 hover:bg-slate-50 active:border-b-0 active:translate-y-[4px] transition-all">
+      <ChevronLeft size={24} /> Meny
+    </button>
+    <div className="flex items-center gap-3">
+      {score !== undefined && (
+        <span className="bg-yellow-400 text-yellow-900 font-black px-4 py-2 rounded-2xl border-b-4 border-yellow-600 shadow-sm flex items-center gap-2">
+          <Award size={20} /> Poäng: {score}
+        </span>
+      )}
+      {current !== undefined && total !== undefined && (
+        <span className="bg-indigo-100 text-indigo-700 font-black px-5 py-3 rounded-2xl border-2 border-indigo-200 shadow-sm">
+          {current} / {total}
+        </span>
+      )}
+    </div>
+  </div>
+);
+
+function EmptyState({ onBack, message = "Du måste lägga till några glosor först!" }) {
+  return (
+    <div className="text-center py-20 bg-white rounded-[3rem] shadow-xl shadow-slate-200/50 border-4 border-white max-w-xl mx-auto mt-10">
+      <div className="bg-slate-100 w-32 h-32 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 border-4 border-slate-200 transform -rotate-6">
+        <Settings size={64} className="text-slate-400" />
+      </div>
+      <h3 className="text-4xl font-black text-slate-800 mb-4 tracking-tight">Hoppsan!</h3>
+      <p className="text-xl text-slate-500 mb-10 font-medium">{message}</p>
+      <button onClick={onBack} className="bg-indigo-500 hover:bg-indigo-400 text-white px-10 py-5 rounded-2xl font-black text-xl border-b-[8px] border-indigo-700 active:border-b-0 active:translate-y-[8px] transition-all">
+        Tillbaka till menyn
+      </button>
+    </div>
+  );
+}
+
+function ScoreScreen({ score, total, onBack, title = "Level Cleared!", bg = "from-yellow-400 to-orange-500" }) {
+  const percentage = Math.round((score / total) * 100);
+  let feedbackText = "Helt otroligt! Full pott! 🌟";
+  if (percentage < 100) feedbackText = "Riktigt snyggt jobbat! 🔥";
+  if (percentage < 50) feedbackText = "En bra start! Övning ger färdighet. 💪";
+
+  return (
+    <div className={`max-w-lg mx-auto text-center py-16 px-8 bg-gradient-to-br ${bg} rounded-[3rem] shadow-2xl border-8 border-white animate-in zoom-in-95 duration-500 text-white mt-10`}>
+      <div className="inline-flex p-8 rounded-full bg-white/20 text-white mb-8 shadow-inner transform -rotate-12">
+         <Award size={80} />
+      </div>
+      <h2 className="text-6xl font-black mb-4 tracking-tighter drop-shadow-md">{title}</h2>
+      <p className="text-2xl font-bold opacity-90 mb-10">{feedbackText}</p>
+      <div className="bg-white/20 rounded-[2.5rem] p-8 mb-10 border-4 border-white/30 backdrop-blur-sm">
+        <div className="text-8xl font-black drop-shadow-lg mb-2 tracking-tighter">{score} <span className="text-4xl opacity-70">/ {total}</span></div>
+        <div className="text-lg font-bold uppercase tracking-widest opacity-80">Rätt Svar</div>
+      </div>
+      <button onClick={onBack} className="w-full bg-white text-slate-800 font-black py-6 rounded-2xl shadow-xl border-b-[8px] border-slate-300 active:border-b-0 active:translate-y-[8px] transition-all text-2xl uppercase tracking-wider hover:bg-slate-50">
+        Meny
+      </button>
+    </div>
+  );
+}
+
 function Flashcards({ words, onBack, ttsLanguage, direction }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -497,14 +585,14 @@ function Flashcards({ words, onBack, ttsLanguage, direction }) {
       <div className="w-full"><GameHeader current={currentIndex + 1} total={words.length} onBack={onBack} /></div>
       <div className="w-full h-[24rem] perspective-1000 cursor-pointer mb-10 transition-transform duration-300 hover:-translate-y-2" onClick={() => setIsFlipped(!isFlipped)}>
         <div className={`w-full h-full relative preserve-3d transition-transform duration-500 ease-out ${isFlipped ? 'rotate-y-180' : ''}`}>
-          <div className="absolute w-full h-full backface-hidden bg-white border-8 border-blue-50 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-10">
-            <h2 className="text-6xl font-black text-slate-800 text-center mb-8">{sides.front}</h2>
-            <button onClick={(e) => { e.stopPropagation(); playAudio(sides.front, sides.isFrontForeign ? ttsLanguage : 'sv-SE'); }} className="bg-blue-100 p-5 rounded-full text-blue-600 hover:bg-blue-500 hover:text-white transition-colors shadow-sm"><Volume2 size={32} /></button>
+          <div className="absolute w-full h-full backface-hidden bg-white border-8 border-blue-50 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-10 overflow-hidden">
+            <h2 className="text-4xl sm:text-6xl font-black text-slate-800 text-center mb-8 break-all">{sides.front}</h2>
+            <button onClick={(e) => { e.stopPropagation(); playAudio(sides.front, sides.isFrontForeign ? ttsLanguage : 'sv-SE'); }} className="bg-blue-100 p-5 rounded-full text-blue-600 hover:bg-blue-50 hover:text-white transition-colors shadow-sm shrink-0"><Volume2 size={32} /></button>
             <span className="absolute bottom-6 text-slate-400 font-bold uppercase tracking-widest text-sm">Klicka för att vända</span>
           </div>
-          <div className="absolute w-full h-full backface-hidden bg-gradient-to-br from-blue-500 to-indigo-600 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-10 rotate-y-180 border-8 border-blue-400 text-white">
-            <h2 className="text-6xl font-black text-center mb-8">{sides.back}</h2>
-            <button onClick={(e) => { e.stopPropagation(); playAudio(sides.back, sides.isBackForeign ? ttsLanguage : 'sv-SE'); }} className="bg-white/20 p-5 rounded-full text-white hover:bg-white/40 transition-colors shadow-sm"><Volume2 size={32} /></button>
+          <div className="absolute w-full h-full backface-hidden bg-gradient-to-br from-blue-500 to-indigo-600 rounded-[3rem] shadow-2xl flex flex-col items-center justify-center p-10 rotate-y-180 border-8 border-blue-400 text-white overflow-hidden">
+            <h2 className="text-4xl sm:text-6xl font-black text-center mb-8 break-all">{sides.back}</h2>
+            <button onClick={(e) => { e.stopPropagation(); playAudio(sides.back, sides.isBackForeign ? ttsLanguage : 'sv-SE'); }} className="bg-white/20 p-5 rounded-full text-white hover:bg-white/40 transition-colors shadow-sm shrink-0"><Volume2 size={32} /></button>
           </div>
         </div>
       </div>
@@ -519,14 +607,15 @@ function QuizMode({ words, onBack, direction }) {
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
-  if (words.length < 4) return <EmptyState onBack={onBack} message="Du behöver minst 4 glosor för att spela quizet." />;
+
   useEffect(() => {
-    if (isFinished) return;
+    if (isFinished || words.length < 4) return;
     const currentWord = words[currentIndex];
     const shuffledOthers = [...words].filter(w => w.id !== currentWord.id).sort(() => 0.5 - Math.random()).slice(0, 3);
     setOptions([currentWord, ...shuffledOthers].sort(() => 0.5 - Math.random()));
     setSelectedAnswer(null);
   }, [currentIndex, words, isFinished]);
+
   const handleSelect = (option) => {
     if (selectedAnswer) return;
     const isCorrect = option.id === words[currentIndex].id;
@@ -534,18 +623,21 @@ function QuizMode({ words, onBack, direction }) {
     if (isCorrect) setScore(s => s + 1);
     setTimeout(() => { if (currentIndex + 1 < words.length) setCurrentIndex(c => c + 1); else setIsFinished(true); }, 1500);
   };
+
+  if (words.length < 4) return <EmptyState onBack={onBack} message="Du behöver minst 4 glosor för att spela quizet." />;
   if (isFinished) return <ScoreScreen score={score} total={words.length} onBack={onBack} bg="from-purple-500 to-indigo-500" />;
+  
   const sides = getCardSides(words[currentIndex], direction);
   return (
     <div className="max-w-3xl mx-auto">
       <GameHeader current={currentIndex + 1} total={words.length} score={score} onBack={onBack} />
       <div className="bg-white p-8 sm:p-12 rounded-[3rem] shadow-xl shadow-purple-100/50 border-4 border-white text-center relative overflow-hidden">
         <div className="absolute top-0 left-0 h-3 bg-slate-100 w-full"><div className="h-full bg-purple-500 transition-all duration-500 rounded-r-full" style={{ width: `${(currentIndex / words.length) * 100}%` }}></div></div>
-        <div className="bg-purple-50 py-10 rounded-[2rem] border-4 border-purple-100 mb-10 mt-4"><p className="text-purple-400 font-bold uppercase tracking-widest text-sm mb-2">Vad betyder</p><h2 className="text-5xl sm:text-6xl font-black text-purple-900">{sides.front}</h2></div>
+        <div className="bg-purple-50 py-10 rounded-[2rem] border-4 border-purple-100 mb-10 mt-4 px-4 overflow-hidden"><p className="text-purple-400 font-bold uppercase tracking-widest text-sm mb-2">Vad betyder</p><h2 className="text-4xl sm:text-5xl font-black text-purple-900 break-all">{sides.front}</h2></div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
           {options.map(option => {
             const optSide = getCardSides(option, direction);
-            let btnClass = "p-6 rounded-[2rem] text-2xl font-black transition-all border-b-[8px] active:border-b-0 active:translate-y-[8px] ";
+            let btnClass = "p-6 rounded-[2rem] text-xl sm:text-2xl font-black transition-all border-b-[8px] active:border-b-0 active:translate-y-[8px] break-all leading-tight ";
             if (!selectedAnswer) btnClass += "bg-white text-slate-700 border-2 border-slate-200 border-b-slate-300 hover:border-purple-300 hover:border-b-purple-400 hover:bg-purple-50";
             else if (option.id === words[currentIndex].id) btnClass += "bg-green-500 text-white border-green-700 border-b-[2px] translate-y-[6px]"; 
             else if (selectedAnswer.optionId === option.id) btnClass += "bg-red-500 text-white border-red-700 border-b-[2px] translate-y-[6px]"; 
@@ -564,24 +656,28 @@ function TypingMode({ words, onBack, direction }) {
   const [feedback, setFeedback] = useState(null);
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
-  if (words.length === 0) return <EmptyState onBack={onBack} />;
-  const sides = getCardSides(words[currentIndex], direction);
+
   const handleSubmit = (e) => {
     e.preventDefault(); if (feedback || !input.trim()) return;
+    const sides = getCardSides(words[currentIndex], direction);
     const isCorrect = input.trim().toLowerCase() === sides.back.trim().toLowerCase();
     setFeedback(isCorrect ? 'correct' : 'incorrect'); if (isCorrect) setScore(s => s + 1);
     setTimeout(() => { setFeedback(null); setInput(''); if (currentIndex + 1 < words.length) setCurrentIndex(c => c + 1); else setIsFinished(true); }, 2000);
   };
+
+  if (words.length === 0) return <EmptyState onBack={onBack} />;
   if (isFinished) return <ScoreScreen score={score} total={words.length} onBack={onBack} bg="from-orange-500 to-red-500" />;
+  
+  const sides = getCardSides(words[currentIndex], direction);
   return (
     <div className="max-w-2xl mx-auto">
       <GameHeader current={currentIndex + 1} total={words.length} score={score} onBack={onBack} />
       <div className="bg-white p-8 sm:p-12 rounded-[3rem] shadow-xl shadow-orange-100/50 border-4 border-white text-center">
         <p className="text-orange-400 font-bold uppercase tracking-widest text-sm mb-4">Skriv översättningen för</p>
-        <div className="py-12 bg-orange-50 rounded-[2rem] border-4 border-orange-100 mb-10"><h2 className="text-5xl sm:text-6xl font-black text-orange-900">{sides.front}</h2></div>
+        <div className="py-12 bg-orange-50 rounded-[2rem] border-4 border-orange-100 mb-10 px-4 overflow-hidden"><h2 className="text-4xl sm:text-5xl font-black text-orange-900 break-all">{sides.front}</h2></div>
         <form onSubmit={handleSubmit} className="relative mt-8">
-          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} disabled={feedback !== null} placeholder="Klicka och skriv..." autoFocus className={`w-full text-center text-3xl font-bold p-6 rounded-[2rem] border-[6px] outline-none transition-colors shadow-inner ${feedback === 'correct' ? 'border-green-500 bg-green-50 text-green-800' : feedback === 'incorrect' ? 'border-red-500 bg-red-50 text-red-800' : 'border-slate-200 focus:border-orange-400 bg-slate-50'}`} />
-          {!feedback ? <button type="submit" className="mt-8 w-full bg-orange-500 hover:bg-orange-400 text-white font-black py-5 rounded-2xl shadow-sm border-b-[8px] border-orange-700 active:border-b-0 active:translate-y-[8px] transition-all text-2xl uppercase tracking-wider">Rätta</button> : <div className={`mt-8 p-6 rounded-[2rem] text-2xl font-black border-4 animate-in zoom-in ${feedback === 'correct' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{feedback === 'correct' ? 'Snyggt!' : `Rätt svar: ${sides.back}`}</div>}
+          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} disabled={feedback !== null} placeholder="Klicka och skriv..." autoFocus className={`w-full text-center text-2xl sm:text-3xl font-bold p-6 rounded-[2rem] border-[6px] outline-none transition-colors shadow-inner ${feedback === 'correct' ? 'border-green-500 bg-green-50 text-green-800' : feedback === 'incorrect' ? 'border-red-500 bg-red-50 text-red-800' : 'border-slate-200 focus:border-orange-400 bg-slate-50'}`} />
+          {!feedback ? <button type="submit" className="mt-8 w-full bg-orange-500 hover:bg-orange-400 text-white font-black py-5 rounded-2xl shadow-sm border-b-[8px] border-orange-700 active:border-b-0 active:translate-y-[8px] transition-all text-2xl uppercase tracking-wider">Rätta</button> : <div className={`mt-8 p-6 rounded-[2rem] text-xl sm:text-2xl font-black border-4 animate-in zoom-in break-all ${feedback === 'correct' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{feedback === 'correct' ? 'Snyggt!' : `Rätt svar: ${sides.back}`}</div>}
         </form>
       </div>
     </div>
@@ -594,23 +690,27 @@ function ListenTypeMode({ words, onBack, ttsLanguage, direction }) {
   const [feedback, setFeedback] = useState(null);
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
-  if (words.length === 0) return <EmptyState onBack={onBack} />;
-  const sides = getCardSides(words[currentIndex], direction);
+
   const handleSubmit = (e) => {
     e.preventDefault(); if (feedback || !input.trim()) return;
+    const sides = getCardSides(words[currentIndex], direction);
     const isCorrect = input.trim().toLowerCase() === sides.back.trim().toLowerCase();
     setFeedback(isCorrect ? 'correct' : 'incorrect'); if (isCorrect) setScore(s => s + 1);
     setTimeout(() => { setFeedback(null); setInput(''); if (currentIndex + 1 < words.length) setCurrentIndex(c => c + 1); else setIsFinished(true); }, 2000);
   };
+
+  if (words.length === 0) return <EmptyState onBack={onBack} />;
   if (isFinished) return <ScoreScreen score={score} total={words.length} onBack={onBack} bg="from-cyan-400 to-blue-500" />;
+  
+  const sides = getCardSides(words[currentIndex], direction);
   return (
     <div className="max-w-2xl mx-auto">
       <GameHeader current={currentIndex + 1} total={words.length} score={score} onBack={onBack} />
       <div className="bg-white p-8 sm:p-12 rounded-[3rem] shadow-xl shadow-cyan-100/50 border-4 border-white text-center">
         <div className="mb-10 mt-4"><button onClick={() => playAudio(sides.front, sides.isFrontForeign ? ttsLanguage : 'sv-SE')} className="w-40 h-40 mx-auto bg-cyan-500 hover:bg-cyan-400 text-white rounded-full flex items-center justify-center shadow-lg border-b-[8px] border-cyan-700 active:border-b-0 active:translate-y-[8px] transition-all group"><Volume2 size={80} className="group-hover:scale-110 transition-transform" /></button><p className="mt-8 text-cyan-600 font-black uppercase tracking-widest text-lg">Klicka för att lyssna</p></div>
         <form onSubmit={handleSubmit} className="relative mt-8">
-          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} disabled={feedback !== null} placeholder="Vad hörde du?" autoFocus className={`w-full text-center text-3xl font-bold p-6 rounded-[2rem] border-[6px] outline-none transition-colors shadow-inner ${feedback === 'correct' ? 'border-green-500 bg-green-50 text-green-800' : feedback === 'incorrect' ? 'border-red-500 bg-red-50 text-red-800' : 'border-slate-200 focus:border-cyan-400 bg-slate-50'}`} />
-          {!feedback ? <button type="submit" className="mt-8 w-full bg-cyan-500 hover:bg-cyan-400 text-white font-black py-5 rounded-2xl shadow-sm border-b-[8px] border-cyan-700 active:border-b-0 active:translate-y-[8px] transition-all text-2xl uppercase tracking-wider">Rätta</button> : <div className={`mt-8 p-6 rounded-[2rem] text-2xl font-black border-4 animate-in zoom-in ${feedback === 'correct' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{feedback === 'correct' ? 'Perfekt!' : `Nästan! Ordet var: ${sides.back}`}</div>}
+          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} disabled={feedback !== null} placeholder="Vad hörde du?" autoFocus className={`w-full text-center text-2xl sm:text-3xl font-bold p-6 rounded-[2rem] border-[6px] outline-none transition-colors shadow-inner ${feedback === 'correct' ? 'border-green-500 bg-green-50 text-green-800' : feedback === 'incorrect' ? 'border-red-500 bg-red-50 text-red-800' : 'border-slate-200 focus:border-cyan-400 bg-slate-50'}`} />
+          {!feedback ? <button type="submit" className="mt-8 w-full bg-cyan-500 hover:bg-cyan-400 text-white font-black py-5 rounded-2xl shadow-sm border-b-[8px] border-cyan-700 active:border-b-0 active:translate-y-[8px] transition-all text-2xl uppercase tracking-wider">Rätta</button> : <div className={`mt-8 p-6 rounded-[2rem] text-xl sm:text-2xl font-black border-4 animate-in zoom-in break-all ${feedback === 'correct' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{feedback === 'correct' ? 'Perfekt!' : `Nästan! Ordet var: ${sides.back}`}</div>}
         </form>
       </div>
     </div>
@@ -624,12 +724,12 @@ function SpeakMode({ words, onBack, ttsLanguage, direction }) {
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
   const [transcript, setTranscript] = useState('');
+  
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) return <EmptyState onBack={onBack} message="Din webbläsare stöder tyvärr inte taligenkänning. Försök med Chrome/Edge." />;
-  if (words.length === 0) return <EmptyState onBack={onBack} />;
-  const sides = getCardSides(words[currentIndex], direction);
+  
   const startListening = () => {
     if (isListening || feedback) return;
+    const sides = getCardSides(words[currentIndex], direction);
     const recognition = new SpeechRecognition();
     recognition.lang = sides.isBackForeign ? ttsLanguage : 'sv-SE';
     recognition.onstart = () => { setIsListening(true); setTranscript(''); };
@@ -643,15 +743,20 @@ function SpeakMode({ words, onBack, ttsLanguage, direction }) {
     recognition.onend = () => setIsListening(false);
     recognition.start();
   };
+
+  if (!SpeechRecognition) return <EmptyState onBack={onBack} message="Din webbläsare stöder tyvärr inte taligenkänning. Försök med Chrome/Edge." />;
+  if (words.length === 0) return <EmptyState onBack={onBack} />;
   if (isFinished) return <ScoreScreen score={score} total={words.length} onBack={onBack} bg="from-lime-400 to-green-500" />;
+  
+  const sides = getCardSides(words[currentIndex], direction);
   return (
     <div className="max-w-2xl mx-auto">
       <GameHeader current={currentIndex + 1} total={words.length} score={score} onBack={onBack} />
       <div className="bg-white p-8 sm:p-12 rounded-[3rem] shadow-xl shadow-lime-100/50 border-4 border-white text-center">
         <p className="text-lime-600 font-bold uppercase tracking-widest text-sm mb-4">Säg översättningen högt</p>
-        <div className="py-12 bg-lime-50 rounded-[2rem] border-4 border-lime-100 mb-10"><h2 className="text-5xl sm:text-6xl font-black text-lime-900">{sides.front}</h2></div>
+        <div className="py-12 bg-lime-50 rounded-[2rem] border-4 border-lime-100 mb-10 px-4 overflow-hidden"><h2 className="text-4xl sm:text-5xl font-black text-lime-900 break-all">{sides.front}</h2></div>
         <div className="flex flex-col items-center justify-center min-h-[180px]">
-          {feedback ? <div className={`p-8 rounded-[2rem] w-full text-2xl font-black border-4 animate-in zoom-in ${feedback === 'correct' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}><p className="text-lg font-bold opacity-70 mb-2 uppercase tracking-wider">Datorn hörde: "{transcript}"</p>{feedback === 'correct' ? 'Perfekt uttal!' : `Rätt svar är: ${sides.back}`}</div> : <><button onClick={startListening} disabled={isListening} className={`w-32 h-32 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-red-500 scale-125 animate-pulse text-white shadow-[0_0_40px_rgba(239,68,68,0.5)] border-4 border-red-300' : 'bg-lime-500 hover:bg-lime-400 border-b-[8px] border-lime-700 active:border-b-0 active:translate-y-[8px] text-white'}`}><Mic size={56} className={isListening ? 'animate-bounce' : ''} /></button><p className={`mt-8 font-black uppercase tracking-widest text-xl ${isListening ? 'text-red-500' : 'text-slate-400'}`}>{isListening ? "Prata nu!" : "Klicka på micken"}</p></>}
+          {feedback ? <div className={`p-8 rounded-[2rem] w-full text-xl sm:text-2xl font-black border-4 animate-in zoom-in break-all ${feedback === 'correct' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}><p className="text-base sm:text-lg font-bold opacity-70 mb-2 uppercase tracking-wider">Datorn hörde: "{transcript}"</p>{feedback === 'correct' ? 'Perfekt uttal!' : `Rätt svar är: ${sides.back}`}</div> : <><button onClick={startListening} disabled={isListening} className={`w-32 h-32 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-red-500 scale-125 animate-pulse text-white shadow-[0_0_40px_rgba(239,68,68,0.5)] border-4 border-red-300' : 'bg-lime-500 hover:bg-lime-400 border-b-[8px] border-lime-700 active:border-b-0 active:translate-y-[8px] text-white'}`}><Mic size={56} className={isListening ? 'animate-bounce' : ''} /></button><p className={`mt-8 font-black uppercase tracking-widest text-xl ${isListening ? 'text-red-500' : 'text-slate-400'}`}>{isListening ? "Prata nu!" : "Klicka på micken"}</p></>}
         </div>
       </div>
     </div>
@@ -665,33 +770,38 @@ function ScrambleMode({ words, onBack, direction }) {
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
   const [feedback, setFeedback] = useState(null);
-  if (words.length === 0) return <EmptyState onBack={onBack} />;
-  const sides = getCardSides(words[currentIndex], direction);
+
   useEffect(() => {
-    if (!isFinished && words.length > 0) {
-      const chars = sides.back.replace(/\s+/g, '').toUpperCase().split('');
-      setScrambled(chars.map((char, i) => ({ char, id: i })).sort(() => 0.5 - Math.random()));
-      setSelected([]); setFeedback(null);
-    }
+    if (isFinished || words.length === 0) return;
+    const sides = getCardSides(words[currentIndex], direction);
+    const chars = sides.back.replace(/\s+/g, '').toUpperCase().split('');
+    setScrambled(chars.map((char, i) => ({ char, id: i })).sort(() => 0.5 - Math.random()));
+    setSelected([]); setFeedback(null);
   }, [currentIndex, words, isFinished, direction]);
+
   const handleSelect = (item) => { if (feedback) return; setScrambled(scrambled.filter(l => l.id !== item.id)); setSelected([...selected, item]); };
   const handleDeselect = (item) => { if (feedback) return; setSelected(selected.filter(l => l.id !== item.id)); setScrambled([...scrambled, item]); };
+  
   const checkAnswer = () => {
     const answer = selected.map(s => s.char).join('');
-    const correct = sides.back.replace(/\s+/g, '').toUpperCase();
+    const correct = getCardSides(words[currentIndex], direction).back.replace(/\s+/g, '').toUpperCase();
     if (answer === correct) { setFeedback('correct'); setScore(s => s + 1); } else setFeedback('incorrect');
     setTimeout(() => { if (currentIndex + 1 < words.length) setCurrentIndex(c => c + 1); else setIsFinished(true); }, 1500);
   };
+
+  if (words.length === 0) return <EmptyState onBack={onBack} />;
   if (isFinished) return <ScoreScreen score={score} total={words.length} onBack={onBack} bg="from-teal-400 to-emerald-500" />;
+  
+  const sides = getCardSides(words[currentIndex], direction);
   return (
     <div className="max-w-3xl mx-auto text-center">
       <GameHeader current={currentIndex + 1} total={words.length} score={score} onBack={onBack} />
       <div className="bg-white p-8 sm:p-12 rounded-[3rem] shadow-xl shadow-teal-100/50 border-4 border-white">
-        <p className="text-teal-600 font-bold uppercase tracking-widest text-sm mb-4">Bygg ordet för</p><h2 className="text-5xl font-black text-slate-800 mb-10">{sides.front}</h2>
-        <div className="flex flex-wrap justify-center gap-3 mb-10 min-h-[5rem] p-6 bg-slate-50 rounded-[2rem] border-4 border-dashed border-slate-200">{selected.map(item => <button key={item.id} onClick={() => handleDeselect(item)} className="w-16 h-16 flex items-center justify-center bg-teal-500 text-white font-black text-3xl rounded-2xl border-b-[6px] border-teal-700 active:border-b-0 active:translate-y-[6px] transition-all">{item.char}</button>)}</div>
-        <div className="flex flex-wrap justify-center gap-3 mb-10">{scrambled.map(item => <button key={item.id} onClick={() => handleSelect(item)} className="w-16 h-16 flex items-center justify-center bg-white text-slate-700 font-black text-3xl rounded-2xl border-2 border-slate-200 border-b-[6px] border-b-slate-300 hover:bg-teal-50 hover:border-teal-200 hover:border-b-teal-300 active:border-b-[2px] active:translate-y-[4px] transition-all">{item.char}</button>)}</div>
+        <p className="text-teal-600 font-bold uppercase tracking-widest text-sm mb-4">Bygg ordet för</p><h2 className="text-4xl sm:text-5xl font-black text-slate-800 mb-10 break-all">{sides.front}</h2>
+        <div className="flex flex-wrap justify-center gap-3 mb-10 min-h-[5rem] p-6 bg-slate-50 rounded-[2rem] border-4 border-dashed border-slate-200">{selected.map(item => <button key={item.id} onClick={() => handleDeselect(item)} className="w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center bg-teal-500 text-white font-black text-2xl sm:text-3xl rounded-2xl border-b-[6px] border-teal-700 active:border-b-0 active:translate-y-[6px] transition-all">{item.char}</button>)}</div>
+        <div className="flex flex-wrap justify-center gap-3 mb-10">{scrambled.map(item => <button key={item.id} onClick={() => handleSelect(item)} className="w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center bg-white text-slate-700 font-black text-2xl sm:text-3xl rounded-2xl border-2 border-slate-200 border-b-[6px] border-b-slate-300 hover:bg-teal-50 hover:border-teal-200 hover:border-b-teal-300 active:border-b-[2px] active:translate-y-[4px] transition-all">{item.char}</button>)}</div>
         {scrambled.length === 0 && !feedback && <button onClick={checkAnswer} className="w-full bg-teal-500 hover:bg-teal-400 text-white font-black py-5 rounded-2xl shadow-sm border-b-[8px] border-teal-700 active:border-b-0 active:translate-y-[8px] transition-all text-2xl uppercase tracking-wider animate-in zoom-in">Rätta</button>}
-        {feedback && <div className={`p-6 rounded-[2rem] text-2xl font-black border-4 animate-in zoom-in ${feedback === 'correct' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{feedback === 'correct' ? 'Helt rätt!' : `Fel! Rätt svar är: ${sides.back}`}</div>}
+        {feedback && <div className={`p-6 rounded-[2rem] text-xl sm:text-2xl font-black border-4 animate-in zoom-in break-all ${feedback === 'correct' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{feedback === 'correct' ? 'Helt rätt!' : `Fel! Rätt svar är: ${sides.back}`}</div>}
       </div>
     </div>
   );
@@ -704,33 +814,46 @@ function HangmanMode({ words, onBack, direction }) {
   const [score, setScore] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
   const [wordStatus, setWordStatus] = useState(null); 
-  if (words.length === 0) return <EmptyState onBack={onBack} />;
-  const maxMistakes = 6; const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ".split("");
-  const sides = getCardSides(words[currentIndex], direction); const targetWord = sides.back.toUpperCase();
+
   const handleGuess = (letter) => {
     if (wordStatus || guessed.includes(letter)) return;
+    const sides = getCardSides(words[currentIndex], direction); 
+    const targetWord = sides.back.toUpperCase();
     const newGuessed = [...guessed, letter]; setGuessed(newGuessed);
-    if (!targetWord.includes(letter)) { if (mistakes + 1 >= maxMistakes) { setWordStatus('lost'); setTimeout(nextWord, 3000); } setMistakes(m => m + 1); }
-    else { if (targetWord.split('').every(char => char === ' ' || newGuessed.includes(char))) { setWordStatus('won'); setScore(s => s + 1); setTimeout(nextWord, 3000); } }
+    
+    if (!targetWord.includes(letter)) { 
+      if (mistakes + 1 >= 6) { setWordStatus('lost'); setTimeout(nextWord, 3000); } setMistakes(m => m + 1); 
+    } else { 
+      if (targetWord.split('').every(char => char === ' ' || newGuessed.includes(char))) { setWordStatus('won'); setScore(s => s + 1); setTimeout(nextWord, 3000); } 
+    }
   };
+
   const nextWord = () => { if (currentIndex + 1 < words.length) { setCurrentIndex(c => c + 1); setGuessed([]); setMistakes(0); setWordStatus(null); } else setIsFinished(true); };
+  
+  if (words.length === 0) return <EmptyState onBack={onBack} />;
   if (isFinished) return <ScoreScreen score={score} total={words.length} onBack={onBack} bg="from-red-500 to-pink-600" />;
+  
+  const sides = getCardSides(words[currentIndex], direction); 
+  const targetWord = sides.back.toUpperCase();
+  const maxMistakes = 6; 
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ".split("");
+
   return (
     <div className="max-w-3xl mx-auto text-center">
       <GameHeader current={currentIndex + 1} total={words.length} score={score} onBack={onBack} />
       <div className="bg-white p-8 sm:p-12 rounded-[3rem] shadow-xl shadow-red-100/50 border-4 border-white">
          <div className="flex justify-between items-center mb-8 bg-red-50 p-4 rounded-2xl border-4 border-red-100"><span className="text-red-500 font-bold uppercase tracking-widest text-sm">Gissa ordet för</span><span className="bg-white text-red-600 px-4 py-2 rounded-xl font-black shadow-sm">Försök kvar: {maxMistakes - mistakes}</span></div>
-         <h2 className="text-4xl sm:text-5xl font-black text-slate-800 mb-10">{sides.front}</h2>
-         <div className="flex justify-center gap-3 sm:gap-4 mb-12 flex-wrap">{targetWord.split('').map((char, i) => char === ' ' ? <div key={i} className="w-6 sm:w-10"></div> : <div key={i} className={`w-12 h-16 sm:w-16 sm:h-20 flex items-center justify-center text-4xl font-black rounded-2xl border-b-8 ${guessed.includes(char) || wordStatus === 'lost' ? 'border-slate-300 text-slate-800 bg-slate-100' : 'border-slate-200 text-transparent bg-slate-50'}`}>{guessed.includes(char) || wordStatus === 'lost' ? char : '_'}</div>)}</div>
+         <h2 className="text-3xl sm:text-5xl font-black text-slate-800 mb-10 break-all">{sides.front}</h2>
+         <div className="flex justify-center gap-3 sm:gap-4 mb-12 flex-wrap">{targetWord.split('').map((char, i) => char === ' ' ? <div key={i} className="w-6 sm:w-10"></div> : <div key={i} className={`w-10 h-14 sm:w-16 sm:h-20 flex items-center justify-center text-3xl sm:text-4xl font-black rounded-2xl border-b-8 ${guessed.includes(char) || wordStatus === 'lost' ? 'border-slate-300 text-slate-800 bg-slate-100' : 'border-slate-200 text-transparent bg-slate-50'}`}>{guessed.includes(char) || wordStatus === 'lost' ? char : '_'}</div>)}</div>
          <div className="flex flex-wrap justify-center gap-2 sm:gap-3 mb-6">{alphabet.map(letter => {
            const isGuessed = guessed.includes(letter);
-           let btnClass = "w-12 h-14 sm:w-14 sm:h-16 flex justify-center items-center rounded-2xl font-black text-xl transition-all border-b-[6px] ";
+           let btnClass = "w-10 h-12 sm:w-14 sm:h-16 flex justify-center items-center rounded-2xl font-black text-lg sm:text-xl transition-all border-b-[6px] ";
            if (isGuessed && targetWord.includes(letter)) btnClass += "bg-green-500 text-white border-green-700 active:border-b-[6px] translate-y-[6px] border-b-0"; 
            else if (isGuessed) btnClass += "bg-slate-200 text-slate-400 border-slate-300 opacity-50 border-b-0 translate-y-[6px]"; 
            else btnClass += "bg-white text-slate-700 border-2 border-slate-200 border-b-slate-300 hover:bg-slate-50 active:border-b-0 active:translate-y-[6px]"; 
            return <button key={letter} disabled={isGuessed || wordStatus !== null} onClick={() => handleGuess(letter)} className={btnClass}>{letter}</button>;
          })}</div>
-         {wordStatus && <div className={`mt-8 p-6 rounded-[2rem] text-2xl font-black border-4 animate-in zoom-in ${wordStatus === 'won' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{wordStatus === 'won' ? 'Puh, snyggt räddat!' : 'Ajdå, gubben hängdes!'}</div>}
+         {wordStatus && <div className={`mt-8 p-6 rounded-[2rem] text-xl sm:text-2xl font-black border-4 animate-in zoom-in break-all ${wordStatus === 'won' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>{wordStatus === 'won' ? 'Puh, snyggt räddat!' : 'Ajdå, gubben hängdes!'}</div>}
       </div>
     </div>
   );
@@ -741,13 +864,15 @@ function MatchingMode({ words, onBack }) {
   const [selectedCards, setSelectedCards] = useState([]);
   const [matchedPairs, setMatchedPairs] = useState([]);
   const [isFinished, setIsFinished] = useState(false);
-  if (words.length < 2) return <EmptyState onBack={onBack} message="Du behöver minst 2 glosor." />;
+
   useEffect(() => {
+    if (words.length < 2) return;
     const gameWords = [...words].sort(() => 0.5 - Math.random()).slice(0, 6);
     let generatedCards = [];
     gameWords.forEach(word => { generatedCards.push({ id: `${word.id}-term`, text: word.term, wordId: word.id, type: 'term' }); generatedCards.push({ id: `${word.id}-trans`, text: word.translation, wordId: word.id, type: 'trans' }); });
     setCards(generatedCards.sort(() => 0.5 - Math.random()));
   }, [words]);
+
   const handleCardClick = (card) => {
     if (matchedPairs.includes(card.wordId) || selectedCards.some(c => c.id === card.id) || selectedCards.length === 2) return;
     const newSelected = [...selectedCards, card]; setSelectedCards(newSelected);
@@ -757,14 +882,20 @@ function MatchingMode({ words, onBack }) {
       } else setTimeout(() => setSelectedCards([]), 1000);
     }
   };
+
+  if (words.length < 2) return <EmptyState onBack={onBack} message="Du behöver minst 2 glosor." />;
   if (isFinished) return <ScoreScreen score={cards.length / 2} total={cards.length / 2} onBack={onBack} bg="from-pink-400 to-rose-500" title="Briljant!" />;
+  
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex flex-wrap justify-between items-center mb-8 gap-4"><button onClick={onBack} className="flex items-center gap-2 bg-white text-slate-600 font-bold px-5 py-3 rounded-2xl shadow-sm border-b-4 border-slate-200 hover:bg-slate-50 active:border-b-0 active:translate-y-[4px] transition-all"><ChevronLeft size={24} /> Meny</button><div className="bg-pink-100 text-pink-700 font-black px-6 py-3 rounded-2xl border-4 border-pink-200 shadow-sm">Hittade par: {matchedPairs.length} / {cards.length / 2}</div></div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">{cards.map(card => {
         const isMatched = matchedPairs.includes(card.wordId); const isSelected = selectedCards.some(c => c.id === card.id);
-        let btnClasses = "h-32 sm:h-40 p-4 rounded-[2rem] flex items-center justify-center text-xl sm:text-2xl font-black transition-all border-b-[8px] ";
+        const isError = selectedCards.length === 2 && isSelected && selectedCards[0].wordId !== selectedCards[1].wordId;
+        
+        let btnClasses = "h-32 sm:h-40 p-2 sm:p-4 rounded-[2rem] flex items-center justify-center text-base sm:text-xl font-black transition-all border-b-[8px] break-all whitespace-normal text-center leading-tight overflow-hidden w-full ";
         if (isMatched) btnClasses += "bg-slate-100 border-slate-200 text-slate-300 opacity-0 cursor-default transform scale-90"; 
+        else if (isError) btnClasses += "bg-red-500 border-red-700 text-white animate-pulse translate-y-[4px] border-b-[4px]";
         else if (isSelected) btnClasses += "bg-pink-500 border-pink-700 text-white translate-y-[4px] border-b-[4px]"; 
         else btnClasses += "bg-white text-slate-700 border-2 border-slate-200 border-b-slate-300 hover:border-pink-300 hover:border-b-pink-400 active:border-b-0 active:translate-y-[8px]"; 
         return <button key={card.id} onClick={() => handleCardClick(card)} className={btnClasses} disabled={isMatched} style={{visibility: isMatched ? 'hidden' : 'visible'}}>{card.text}</button>;
