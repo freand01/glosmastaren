@@ -39,6 +39,43 @@ const playAudio = (text, lang = 'es-ES') => {
   }
 };
 
+// --- DELNINGSLÄNK: kompakt v2 + bakåtkompatibilitet med v1 ---
+const SHARE_FORMAT_V2 = 2;
+
+const encodeSharePayload = (words, lang, name) => [
+  SHARE_FORMAT_V2,
+  name,
+  lang,
+  words.map((w) => [w.term, w.translation]),
+];
+
+const parseSharePayload = (parsed) => {
+  if (Array.isArray(parsed) && parsed[0] === SHARE_FORMAT_V2) {
+    const [, name, lang, pairs] = parsed;
+    if (!Array.isArray(pairs)) return null;
+    return {
+      name: name || 'Glosläxa',
+      lang: lang || 'en-US',
+      words: pairs.map((pair, i) => ({
+        id: i + 1,
+        term: pair[0],
+        translation: pair[1],
+      })),
+    };
+  }
+  if (parsed.words && Array.isArray(parsed.words)) {
+    return {
+      name: parsed.name || 'Glosläxa',
+      lang: parsed.lang || 'en-US',
+      words: parsed.words,
+    };
+  }
+  return null;
+};
+
+const compressSharePayload = (payload) =>
+  LZString.compressToEncodedURIComponent(JSON.stringify(payload));
+
 // --- INITIAL DUMMY DATA ---
 const defaultWords = [
   { id: 1, term: "The Cat", translation: "Katten" },
@@ -69,20 +106,21 @@ export default function App() {
           else decodedString = decodeURIComponent(atob(listData));
 
           const parsedData = JSON.parse(decodedString);
-          
-          if (parsedData.words && Array.isArray(parsedData.words)) {
+          const shared = parseSharePayload(parsedData);
+
+          if (shared) {
             const studentList = {
               id: 'list-student',
-              name: parsedData.name || 'Glosläxa',
-              words: parsedData.words,
-              lang: parsedData.lang || 'en-US'
+              name: shared.name,
+              words: shared.words,
+              lang: shared.lang,
             };
-            
+
             setLists([studentList]);
             setActiveListId(studentList.id);
             setIsStudentMode(true);
             setIsLoaded(true);
-            return; 
+            return;
           }
         } catch (e) {
           console.error("Kunde inte läsa in delningslänken", e);
@@ -452,8 +490,8 @@ function ShareSaveView({ words, ttsLanguage, activeListName, handleImport }) {
 
   const generateShareLink = () => {
     if (words.length === 0) return alert("Din valda flik är tom! Lägg till glosor innan du delar.");
-    const payload = { words, lang: ttsLanguage, name: activeListName };
-    const compressed = LZString.compressToEncodedURIComponent(JSON.stringify(payload));
+    const payload = encodeSharePayload(words, ttsLanguage, activeListName);
+    const compressed = compressSharePayload(payload);
     const baseUrl = window.location.origin + window.location.pathname;
     const finalUrl = `${baseUrl}?list=${compressed}`;
     navigator.clipboard.writeText(finalUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 3000); }).catch(() => prompt("Kopiera denna länk:", finalUrl));
